@@ -1,0 +1,331 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+  
+    "Description": "uber spot vpn secure puppet",
+
+    "Parameters" : {
+
+        "MyNodename": {
+            "Type": "String",
+            "Default": "",
+            "Description": "Optional: My nodename"
+        },
+
+        "InternalDNSdomain": {
+            "Type": "String",
+            "Description": "Optional: My *Internal* DNS Domain"
+         },
+         "Environment": {
+            "Type": "String",
+            "Description": "Optional: My envriorment. i.e. dev test prod dr"
+        },
+        "ServiceName":{
+            "Type":"String",
+            "Description": "Optional: My envriorment. i.e. EmailServer"
+        },
+        "BuildNo":{
+            "Type":"String",
+            "Description": "Build Number"
+        },
+        "Description":{
+            "Type":"String",
+            "Default" : "uber spot 01"
+        },
+
+        "FilesToPush" : {
+            "Type" : "String",
+            "Description" : "encoded files ",
+            "AllowedPattern": "^(.+)$",
+            "ConstraintDescription": "Malformed input-Parameter filestopush. Use pattern ([<base64filecontents>]=<fqfn>) or ([<base64filecontents>]=<fqfn1> <base64filecontents>]=<fqfn2> ) -> Due to a limitation, the entire Parameter must start and end with a parenthes. Limited by AWS to 4000chars." 
+        },
+
+        "openvpncert" : {
+            "Type" : "String",
+            "Description" : "encoded openvpn cert -> cat client1.crt | xz --best | base64 -i -w0",
+            "AllowedPattern": "^(.+)$",
+            "ConstraintDescription": "Malformed input-Parameter filestopush. Use pattern ([<base64filecontents>]=<fqfn>) or ([<base64filecontents>]=<fqfn1> <base64filecontents>]=<fqfn2> ) -> Due to a limitation, the entire Parameter must start and end with a parenthes. Limited by AWS to 4000chars." 
+        },
+        "openvpnkey" : {
+            "Type" : "String",
+            "Description" : "encoded openvpn key -> cat client1.key | xz --best | base64 -i -w0",
+            "AllowedPattern": "^(.+)$",
+            "ConstraintDescription": "Malformed input-Parameter filestopush. Use pattern ([<base64filecontents>]=<fqfn>) or ([<base64filecontents>]=<fqfn1> <base64filecontents>]=<fqfn2> ) -> Due to a limitation, the entire Parameter must start and end with a parenthes. Limited by AWS to 4000chars." 
+        },
+        "openvpnconf" : {
+            "Type" : "String",
+            "Description" : "encoded openvpn conffile -> cat client1.key | xz --best | base64 -i -w0",
+            "AllowedPattern": "^(.+)$",
+            "ConstraintDescription": "Malformed input-Parameter filestopush. Use pattern ([<base64filecontents>]=<fqfn>) or ([<base64filecontents>]=<fqfn1> <base64filecontents>]=<fqfn2> ) -> Due to a limitation, the entire Parameter must start and end with a parenthes. Limited by AWS to 4000chars." 
+        },
+
+        "UsePuppet":{
+            "Type":"String",
+            "Default" : "false"
+        },
+        "PuppetServerHostname": {
+            "Type": "String",
+            "Default": "",
+            "Description": "Optional: Name of puppet server, defaults to puppet"
+        },
+        "PuppetClientConfFile": {
+            "Type": "String",
+            "Default": "",
+            "Description": "Optional: Name of puppet server, defaults to puppet"
+        },
+        "PuppetSecret":{
+            "Type":"String",
+            "Default" : "myuberpassword",
+            "Description": "Optional: Secret to be added to the initial puppet CSR (used at the other end for autosign"
+        },
+
+
+
+        "PostInstallCommandToRun": {
+            "Type": "String",
+            "Default": "ls -al /etc; ls -al /var",
+            "Description": "Optional: Send a string of commands to bash -c <string> "
+        },
+        "PackagesToInstall" : {
+            "Type" : "String",
+            "Default": "",
+            "Description" : "Optional: List of packages to install"
+        },
+        "UseS3" : {
+            "Type" : "String",
+            "Default": "false",
+            "AllowedValues" : ["true","false"],
+            "Description" : "Optional: Pull a compressed tar file from S3 into /var/tmp and untar it. Default false"
+        },
+
+
+        "AvailZoneLeftSuffix":{
+            "Type":"String",
+            "Default": "a",
+            "AllowedValues" : ["a", "b", "c"],
+            "Description" : "(lowercase) Suffix of of the lefthand AWS Availability Zones.  i.e. a  -> If you want us-west-2a, put 'a'."
+        },
+        "AvailZoneRightSuffix":{
+            "Type":"String",
+            "Default": "a",
+            "AllowedValues" : ["a", "b", "c"],
+            "Description" : "(lowercase) Suffix of of the lefthand AWS Availability Zones.  i.e. a  -> If you want us-west-2a, put 'a'."
+        },
+
+        "TheInstanceType": {
+            "Description": "EC2 instance type",
+            "Type": "String",
+            "Default": "t2.micro",
+            "AllowedValues": [
+                "t2.micro",
+                "t2.small",
+                "t2.medium",
+                "m3.medium"
+            ],
+            "ConstraintDescription": "must be a valid EC2 instance type."
+        },
+        "IamInstanceProfile": {
+            "Type":"String",
+            "Default": "default_noaccess"
+        },
+
+        "MinInstances":{
+            "Type":"String"
+        },
+        "MaxInstances":{
+            "Type":"String"
+        },
+
+        "SSHKey":{
+            "Type":"String"
+        }
+
+
+
+    },
+
+    "Mappings" : {
+
+        "FindVPC" : {
+            "ap-southeast-2" :  { "default" : "vpc-506b9235" }
+        },
+
+        "FindSubnet": {
+            "ap-southeast-2a":{
+                "private" : "subnet-7adf091f",
+                "public" : "subnet-6bdf090e" 
+            },
+            "ap-southeast-2b":{
+                "private" : "subnet-a1708cd6",
+                "public" : "subnet-ed708c9a" 
+            }
+        },
+
+        "AZHelperMap" : {
+            "us-west-2" : {
+                "a" : "us-west-2a",
+                "b" : "us-west-2b",
+                "c" : "us-west-2c"
+            },
+            "ap-southeast-2" : {
+                "a" : "ap-southeast-2a",
+                "b" : "ap-southeast-2b"
+            }
+        }
+
+    },
+
+
+
+    "Resources": {
+
+        "TheGroup": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+                "UpdatePolicy" : {
+                    "AutoScalingRollingUpdate" : {
+                        "MaxBatchSize" : 1,
+                        "MinInstancesInService" : { "Ref": "MinInstances" },
+                        "PauseTime" : "PT0H1M30S"
+                     }
+                },
+
+            "Properties": {
+                "AvailabilityZones": [ 
+		    { "Fn::FindInMap":[ "AZHelperMap", {"Ref":"AWS::Region"} , {"Ref":"AvailZoneLeftSuffix"}  ]  } 
+                ],
+
+            "LaunchConfigurationName": { "Ref": "TheLaunchConfig" },
+                "MinSize": { "Ref" : "MinInstances" },
+                "MaxSize": { "Ref" : "MaxInstances" },
+                "Tags":[
+                    { "Key" : "Name", "Value" : { "Ref" : "MyNodename" }, "PropagateAtLaunch" : "true" },
+                    { "Key" : "Service", "Value" : { "Ref" : "ServiceName" }, "PropagateAtLaunch" : "true" },
+                    { "Key" : "Description", "Value" : { "Ref" : "Description" }, "PropagateAtLaunch" : "true" },
+                    { "Key" : "Environment", "Value": {"Ref":"Environment"}, "PropagateAtLaunch" : "true" },
+                    { "Key" : "BuildNo", "Value": {"Ref":"BuildNo"}, "PropagateAtLaunch" : "true" }
+                ],
+                "VPCZoneIdentifier": [
+                    {"Fn::FindInMap" : [ "FindSubnet",  {"Fn::FindInMap":["AZHelperMap", {"Ref":"AWS::Region"}, {"Ref":"AvailZoneLeftSuffix"}]}  , {"Ref":"InternalDNSdomaie"} ]  }
+                ]
+            }
+        },
+
+        "TheLaunchConfig": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Properties": {
+                "InstanceType": { "Ref": "TheInstanceType"},
+                "SpotPrice" : "0.019999",
+                "AssociatePublicIpAddress": "true",
+                "KeyName": {
+                    "Ref": "SSHKey"
+                },
+                "ImageId": "ami-63f79559",
+                "IamInstanceProfile": { "Ref":"IamInstanceProfile" },
+                "UserData":{
+                  "Fn::Base64":{
+                    "Fn::Join":[ "", [
+                      "#!/bin/bash -ex\n",
+                        "# +++ facter +++ \n",
+                        "/bin/mkdir -p /etc/facter/facts.d >>/var/tmp/facter.out 2>&1 \n",
+                        "#echo '_environment=",{ "Ref" : "Environment" },"' >> /etc/facter/facts.d/streamco_environment.txt\n",
+                        "#echo '_servicename=",{ "Ref" : "ServiceName" },"' >> /etc/facter/facts.d/streamco_servicename.txt\n",
+                        "#echo 'o_",{ "Ref": "ServiceName" },"_build=",{ "Ref" : "BuildNo" },"' >> /etc/facter/facts.d/streamco_servicename_build.txt\n",
+                        "# +++ (IF) puppet +++ \n",
+                        "#if ",{"Ref":"UsePuppet"},"\n",
+                        "#then\n",
+                        "if [ ! -d /etc/puppet ] \n",
+                        "then \n",
+                        "mkdir /etc/puppet\n",
+                        "erb > /etc/puppet/csr_attributes.yaml <<END\n",
+                        "custom_attributes:\n",
+                        "  1.2.840.113549.1.9.7: mySuperAwesomePassword\n",
+                        "extension_requests:\n",
+                        "  pp_instance_id: <%= %x{/opt/aws/bin/ec2-metadata -i}.sub(/instance-id: (.*)/,'\1').chomp %>\n",
+                        "  pp_image_name:  <%= %x{/opt/aws/bin/ec2-metadata -a}.sub(/ami-id: (.*)/,'\1').chomp %>\n",
+                        "END\n",
+                        "sed -i s/START=no/START=yes/ /etc/default/puppet\n",
+                        "echo '[agent]'>>/etc/puppet/puppet.conf\n",
+                        "echo 'environment = ",{ "Ref" : "Environment" },"' >>/etc/puppet/puppet.conf\n",
+                        "echo 'report = false' >>/etc/puppet/puppet.conf\n",
+                        "echo 'server = puppet.mgmt.local' >>/etc/puppet/puppet.conf\n",
+                        "else\n",
+                        "echo 'UsePuppet is false' | tee /var/log/usepuppet \n",
+                        "fi\n",
+                        "# +++ (any)files to push down +++ \n",
+                        "declare -A passed=",{"Ref":"FilesToPush"},"\n",
+                        "for afile in \"${!passed[@]}\"\n",
+                        "do\n",
+                        "dir=`dirname ${passed[\"$afile\"]}`\n",
+                        "if [ ! -d $dir ]\n",
+                        "then\n",
+                        "mkdir -p $dir\n",
+                        "fi\n",
+                        "echo $afile | base64 -d > ${passed[\"$afile\"]}\n",
+                        "ls -al ${passed[\"$afile\"]}\n",
+                        "done\n",
+                        "# +++ packages to install +++ \n",
+                        "for apackage in ",{"Ref":"PackagesToInstall"},"\n",
+                        "do\n",                        
+                        "echo installing $apackage\n",
+                        "apt-get -y install $apackage\n",                        
+                        "done\n",                        
+                        "# +++ (if) standard S3 pull and untar +++ \n",
+                        "#if ",{"Ref":"UseS3"},"\n",
+                        "#then\n",
+                        "#/usr/bin/aws --region ap-southeast-2 s3 ls s3://builds/",{ "Ref" : "Environment" }, " >> /var/tmp/user-data.log 2>&1 \n",
+                        "#/usr/bin/aws --region ap-southeast-2 s3 cp s3://builds/",{ "Ref" : "Environment" }, "/",{ "Ref" : "ServiceName" },".",{ "Ref":"BuildNo" },".tgz /var/tmp/  >>/var/tmp/user-data.log 2>&1 \n",
+                        "#tar -xvf /var/tmp/",{ "Ref" : "ServiceName" },".",{ "Ref" : "BuildNo" },".tgz -C /var/www >>/var/tmp/user-data.log 2>&1 \n",
+                        "#else\n",
+                        "#echo 'UseS3untar is false' | tee /var/log/useS3 \n",
+                        "#fi\n",
+                        "# +++ command string \n",
+                        "echo ", {"Ref":"PostInstallCommandToRun"}, " | bash -s > /var/tmp/command.out 2>&1 \n",
+                        "# +++ update and reboot +++ \n",
+                        "yum -y update\n",
+                        "reboot\n"
+                        ]
+                    ]
+                }
+                },
+                "SecurityGroups": [{"Ref": "TheInstanceSecurityGroup"}],
+                "BlockDeviceMappings" : [ {
+                    "DeviceName" : "/dev/sda1",
+                    "Ebs" : {
+                        "VolumeSize" : "10",
+                        "VolumeType" : "standard"
+                    }
+                } ]
+            }
+        },
+
+        "TheInstanceSecurityGroup" : {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "VpcId" : { "Fn::FindInMap" : [ "VpcIdMap", { "Ref" : "AWS::Region" }, "vpc"]},
+                "GroupDescription": "22:world",
+                    "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": "22",
+                        "ToPort": "22",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "SecurityGroupEgress": [
+                    {
+                        "IpProtocol": "-1",
+                        "FromPort": "-1",
+                        "ToPort": "-1",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ]
+            }
+        }
+
+     },
+    "Outputs" : {
+        "LaunchConfigName" : {
+            "Value" : { "Ref" : "TheLaunchConfig" },
+            "Description" : "Launch Config Name. Remember it requests a spot instanc."
+        }
+    }
+}

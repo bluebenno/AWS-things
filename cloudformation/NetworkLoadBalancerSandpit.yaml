@@ -1,0 +1,117 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+
+
+Description: Janky Network Load Balancer
+
+
+Resources:
+
+
+  EC2InstanceSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties: 
+      GroupDescription: 'Security Group for EC2 instances'
+      SecurityGroupEgress:
+       - Description: Egress
+         CidrIp: 0.0.0.0/0
+         FromPort: 0
+         IpProtocol: '-1'
+         ToPort: 65535
+      SecurityGroupIngress:
+       - Description: Ingress
+         CidrIp: 14.203.182.43/32
+         FromPort: 22
+         IpProtocol: tcp
+         ToPort: 22
+      Tags:
+        - Key: Name
+          Value: Ringo
+      VpcId: 'vpc-198f917d'
+
+
+
+  EC2A:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      AvailabilityZone: 'ap-southeast-2a'
+      ImageId: 'ami-5b778339'
+      InstanceType: 't2.nano'
+      KeyName: 'Jan.2018'
+      Monitoring: false
+      SecurityGroupIds: 
+      - !Ref EC2InstanceSecurityGroup
+      SourceDestCheck: true
+      SubnetId: 'subnet-336ecd54'
+      Tags:
+        -
+         Key: "Name"
+         Value: "A"
+        -
+         Key: "keyname2"
+         Value: "value2"
+      UserData:
+        Fn::Base64: !Sub |
+           touch /tmp/a
+           /usr/bin/ls > /tmp/ls
+           exit 0
+
+
+  NetworkLoadBalancer:
+    Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
+    Properties:
+      Name: 'Network-Load-Balancer-v1'
+      Scheme: 'internet-facing'
+      Subnets:
+      - 'subnet-336ecd54'
+      Type: 'network'
+      IpAddressType: 'ipv4'
+
+
+  NLBEC2TargetGroup:
+    Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+    Properties:
+      HealthCheckProtocol: TCP
+      Name: HealthCheck101
+      Port: 22
+      Protocol: 'TCP'
+      Targets:
+      - Id:
+          Ref: EC2A
+        Port: 2222
+      TargetType: 'instance'
+      VpcId: 'vpc-198f917d'
+
+
+  NetworkLoadBalancerListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      LoadBalancerArn: !Ref NetworkLoadBalancer
+      Port: '2222'
+      Protocol: 'TCP' 
+      DefaultActions: 
+      - Type: 'forward'
+        TargetGroupArn: !Ref NLBEC2TargetGroup
+
+
+
+Outputs:
+    LoadBalancer:
+        Description: A reference to the Application Load Balancer
+        Value: !Ref NetworkLoadBalancer
+
+    LoadBalancerUrl:
+        Description: The URL of the ALB
+        Value: !GetAtt NetworkLoadBalancer.DNSName
+
+    Listener:
+        Description: A reference to a port listener
+        Value: !Ref NetworkLoadBalancerListener
+
+
+
+
+
+
+
+

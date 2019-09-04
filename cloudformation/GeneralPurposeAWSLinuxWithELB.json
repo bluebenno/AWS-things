@@ -1,0 +1,455 @@
+{
+
+  "AWSTemplateFormatVersion": "2010-09-09",
+
+  "Description": "AWS Linux",
+
+  "Parameters": {
+    "AvailZoneOne":{
+      "Type":"String",
+      "Default": "a",
+      "AllowedValues" : ["a", "b", "c"],
+      "Description" : "Optional: 1st Availability Zone.  Default a"
+    },
+    "AvailZoneTwo":{
+      "Type":"String",
+      "Default": "b",
+      "AllowedValues" : ["a", "b", "c"],
+      "Description" : "Optional: 2nd Availability Zone.  Default b"
+    },
+    "AMI": {
+      "Description": "Optional: Override AWS Linux AMI here (tip location)",
+      "Type":"String",
+      "Default": "AWS::NoValue"
+    },
+    "InstanceType": {
+      "Description": "Optional: EC2 instance type. Default t2.nano",
+      "Type": "String",
+      "Default": "t2.nano"
+    },
+    "NetworkName":{
+      "Description": "Proper Name of the network(subnet) you want to deploy to. i.e. sandpit-internetfacing",
+      "Type": "String",
+      "Default": "AWS::NoValue"
+    },
+    "BaseVolumeSize": {
+      "Description": "Optional: Can override volume size. Default 10g",
+      "Type":"String",
+      "Default": "10g"
+    },
+    "PublicIPInstance":{
+      "Description": "true puts instances on the internet.  false; Instances will only be available in the VPC via their private IPs",
+      "Type":"String",
+      "Default": "false"
+    },
+    "PublicIPELB":{
+      "Description": "Optional: Set to false for an internal ELB. Default is for ELB on the internet",
+      "Type":"String",
+      "Default": "true"
+    },
+    "InstanceHTTP": {
+      "Description": "Optinal: Instance port number that will server the ELB. Default is 8080",
+      "Type":"String",
+      "Default": "8080"
+    },
+    "SSHKey":{
+      "Description": "Optional. SSH key, default is Nov2017",
+      "Type":"String",
+      "Default":"Nov2017"
+    },
+    "IamInstanceProfile": {
+      "Description": "Optional: Instances will inherit this AWS IAM Profile.  Default is instance-read-only",
+      "Type":"String",
+      "Default": "bluebenno-ec2ands3-all-readonly"
+    },
+   "SpinUpGrace": {
+      "Default": "420",
+      "Type": "Number"
+    },
+    "Service":{
+      "Description": "Service Name",
+      "Type":"String",
+      "Default": "defaultservice"
+    },
+    "Env":{
+      "Description": "Env Name",
+      "Type": "String",
+      "AllowedValues": [ "sandpit", "mgmt" ]
+    },
+    "Version": {
+      "Description": "Stack Version",
+      "Type": "String",
+      "Default": "001"
+    },
+    "Payload":{
+      "Type":"String",
+      "Description": "Optional: A payload, reference http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-init.html#aws-resource-init-sources",
+      "Default": "AWS::NoValue"
+    },
+    "ELBProtocol" : {
+      "Description": "Optional: The protocol of the ELB, pass AWS::NoValue if you don't want an ELB. Default is HTTP",
+      "Type":"String",
+      "Default": "HTTP"
+    },
+    "ELBHTTP": {
+      "Description": "Optional: HTTP Port number on the ELB. Default is 80",
+      "Type":"String",
+      "Default": "80"
+    },
+    "ELBHTTPS": {
+      "Description": "Optional: HTTPS Port number on the ELB. Default is 443",
+      "Type":"String",
+      "Default": "443"
+    },
+    "ELBHealthCheck" : {
+      "Description": "Optional: Set true if you want the health check done by the ELB (will kill unhealth instances). Default is false",
+      "Type":"String",
+      "Default": "false"
+    },
+    "MinInstances":{
+      "Description" : "Optional: Min number of EC2 Instances. Default 1",
+      "Type":"String",
+      "Default": "1"
+    },
+    "MaxInstances":{
+      "Description" : "Optional: Max number of EC2 Instances. Default 1",
+      "Type":"String",
+      "Default": "1"
+    },
+    "PauseTime":{
+      "Description" : "Optional: Quoting AWS Docs 'amount of time that AWS CloudFormation pauses after making a change to a batch of instances' Format=PT#H#M#S. Default PT0H10M0S",
+      "Type":"String",
+      "Default": "PT0H10M0S"
+    },
+    "SpinUpTime":{
+      "Description" : "Optional: Amount of time you set for the instance to spinup (in seconds) INCLUDING the app.  Default 600seconds",
+      "Type":"String",
+      "Default": "600"
+    },
+    "AutoScaleCoolDown":{
+      "Description" : "Optional: Quoting AWS Docs 'The number of seconds after a scaling activity is completed before any further scaling activities can start' in seconds. Default 1200",
+      "Type":"String",
+      "Default": "1200"
+    },
+    "PreExtraUserData": {
+      "Description": "Optional: Extra things for userdata, will run first",
+      "Default": "echo PreExtraUserData is null",
+      "Type": "String"
+    },
+    "FilesToPush": {
+      "Type": "String",
+      "Default": "(['ZmlsZWEK']='/tmp/dira/filea' ['ZmlsZWIK']='/tmp/dirb/fileb' )",
+      "Description": "Optional: Push base64 encoded content to files on the instance(s). To encode: cat filea | base64 -i -w0",
+      "AllowedPattern": "^(.+)$",
+      "ConstraintDescription": "Malformed FilesToPush. Use pattern (['<base64filecontents>']='<fqfn>') or (['<base64filecontents>']='<fqfn1>' ['<base64filecontents>']='<fqfn2>' )",
+      "NoEcho": true
+     },
+     "PostExtraUserData": {
+       "Description": "Optional: Extra things for userdata, will run last",
+       "Default": "echo PostExtraUserData is null",
+       "Type": "String"
+     }
+  },
+
+
+
+  "Conditions" : {
+    "MakeELB" : { "Fn::Not" : [   {"Fn::Equals" : [ {"Ref":"ELBProtocol"}, "AWS::NoValue"] }   ] },
+    "InternalELB" : { "Fn::Not" : [   {"Fn::Equals" : [ {"Ref":"PublicIPELB"}, "true"] }   ] },
+    "OverRideAMI" :  { "Fn::Not" : [  {"Fn::Equals" : [ {"Ref":"AMI"}, "AWS::NoValue"]}  ] },
+    "DeployPayload" : { "Fn::Not": [  {"Fn::Equals" : [ {"Ref":"Payload"}, "AWS::NoValue"] }  ] },
+    "DoELBHealthCheck" :  {"Fn::Equals" : [ {"Ref": "ELBHealthCheck"}, "true"] }
+  },
+
+
+
+  "Mappings": {
+    "AMIMap": {
+      "ap-southeast-2": {"64" : "ami-ff4ea59d" }
+    },
+
+    "SubnetMap": {
+      "ap-southeast-2a":{
+        "sandpitinternetfacing" : "subnet-336ecd54"
+      },
+      "ap-southeast-2b":{
+        "sandpitinternetfacing" : "subnet-8c3ceec5"
+      },
+      "ap-southeast-2c":{
+        "sandpitinternetfacing" : "subnet-9c89b0c5"
+      }
+    },
+
+    "AZHelperMap": {
+      "ap-southeast-2": {
+        "a": "ap-southeast-2a",
+        "b": "ap-southeast-2b",
+        "c": "ap-southeast-2c",
+        "false": "false"
+      }
+    },
+
+    "VpcIdMap": {
+      "ap-southeast-2": {
+        "vpc": "vpc-198f917d"
+      }
+    },
+
+    "AllowedInternetIPs": {
+      "ben-house": {
+        "ip": "1.2.3.4/32"
+      }
+    }
+  },
+
+
+  "Resources": {
+    "LoadBalancer" : {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Condition" : "MakeELB",
+      "Properties": {
+        "SecurityGroups": [{"Ref": "ELBSecurityGroup"}],
+        "CrossZone" : true,
+        "Subnets": [
+          { "Fn::FindInMap":["SubnetMap",  {"Fn::FindInMap":["AZHelperMap",{ "Ref": "AWS::Region" },{"Ref":"AvailZoneOne"}]},  {"Ref": "NetworkName" } ] },
+          { "Fn::FindInMap":["SubnetMap",  {"Fn::FindInMap":["AZHelperMap",{ "Ref": "AWS::Region" },{"Ref":"AvailZoneTwo"}]},  {"Ref": "NetworkName" } ] } ],
+        "Listeners": [
+        {
+          "LoadBalancerPort": {"Ref":"ELBHTTP"},
+          "InstancePort": {"Ref":"InstanceHTTP"},
+          "Protocol": {"Ref":"ELBProtocol"}
+        } ],
+        "HealthCheck": {
+          "Target": {"Fn::Join": [ ":", [ "TCP", { "Ref" : "ELBHTTP" }  ] ]},
+          "HealthyThreshold": "2",
+          "UnhealthyThreshold": "4",
+          "Interval": "10",
+          "Timeout": "8"
+        },
+        "ConnectionDrainingPolicy" : {
+          "Enabled" : true,
+          "Timeout" : 60
+        },
+        "Tags":[
+          { "Key" : "Service", "Value": { "Ref" : "Service" } },
+          { "Key" : "Env",     "Value": { "Ref" : "Env" } },
+          { "Key" : "Version", "Value": { "Ref" : "Version" } }
+        ]
+      }
+    },
+
+    "InstanceSecurityGroup" : {
+       "Type": "AWS::EC2::SecurityGroup",
+       "Properties": {
+         "VpcId" : { "Fn::FindInMap" : [ "VpcIdMap", { "Ref" : "AWS::Region" }, "vpc"]},
+           "GroupDescription": "Instance Security Group",
+           "SecurityGroupIngress": [
+           {
+              "IpProtocol": "tcp",
+              "FromPort": "22",
+              "ToPort": "22",
+              "CidrIp": { "Fn::FindInMap" : [ "AllowedInternetIPs", "ben-house", "ip" ] }
+           },
+           {
+              "IpProtocol": "tcp",
+              "FromPort": { "Ref" : "ELBHTTP" },
+              "ToPort": { "Ref" : "ELBHTTP" },
+              "CidrIp": { "Fn::FindInMap" : [ "AllowedInternetIPs", "ben-house", "ip" ] }
+           },
+           {
+              "IpProtocol": "tcp",
+              "FromPort": { "Ref" : "ELBHTTP" },
+              "ToPort": { "Ref" : "ELBHTTP" },
+	      "CidrIp": "10.1.0.0/16"
+           } ],
+           "SecurityGroupEgress": [
+           {
+             "IpProtocol": "-1",
+             "FromPort": "0",
+             "ToPort": "65535",
+             "CidrIp": "0.0.0.0/0"
+           } ]
+       }
+    },
+
+    "ELBSecurityGroup" : {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Condition" : "MakeELB",
+      "Properties": {
+        "VpcId" : { "Fn::FindInMap" : [ "VpcIdMap", { "Ref" : "AWS::Region" }, "vpc"]},
+        "GroupDescription": {"Fn::Join": [ "", ["allow port",{"Ref" : "ELBHTTP" }] ] },
+        "SecurityGroupIngress": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": { "Ref" : "ELBHTTP" },
+          "ToPort": { "Ref" : "ELBHTTP" },
+          "CidrIp": "10.1.0.0/16"
+        } ]
+      }
+    },
+
+    "AutoScaleGroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "UpdatePolicy" : {
+        "AutoScalingRollingUpdate" : {
+          "MaxBatchSize" : "1",
+          "MinInstancesInService" : { "Ref": "MinInstances" },
+          "PauseTime" : { "Ref": "PauseTime" },
+          "WaitOnResourceSignals" : "false"
+        }
+      },
+      "Properties": {
+        "Cooldown": { "Ref": "AutoScaleCoolDown" },
+        "HealthCheckGracePeriod": { "Ref": "SpinUpTime" },
+        "TerminationPolicies": ["ClosestToNextInstanceHour"],
+        "AvailabilityZones": [
+          { "Fn::FindInMap": [ "AZHelperMap", { "Ref": "AWS::Region" }, { "Ref": "AvailZoneOne"  } ] },
+          { "Fn::FindInMap": [ "AZHelperMap", { "Ref": "AWS::Region" }, { "Ref": "AvailZoneTwo"  } ] }
+        ],
+        "LaunchConfigurationName": { "Ref": "LaunchConfig" },
+        "MinSize": { "Ref" : "MinInstances" },
+        "MaxSize": { "Ref" : "MaxInstances" },
+        "LoadBalancerNames": { "Fn::If": [ "MakeELB", [{"Ref":"LoadBalancer"}], {"Ref":"AWS::NoValue"} ] },
+        "HealthCheckType": {
+          "Fn::If": [ "DoELBHealthCheck",
+            "ELB",
+            "EC2" ]
+        },
+        "Tags":[
+          { "Key" : "Service", "Value" : { "Ref" : "Service" }, "PropagateAtLaunch" : "true" },
+          { "Key" : "Env",     "Value" : { "Ref" : "Env" },     "PropagateAtLaunch" : "true" },
+          { "Key" : "Version", "Value" : { "Ref" : "Version" }, "PropagateAtLaunch" : "true" }
+        ],
+
+        "VPCZoneIdentifier": [
+          { "Fn::FindInMap":["SubnetMap", {"Fn::FindInMap":["AZHelperMap",{"Ref": "AWS::Region"}, { "Ref": "AvailZoneOne" } ] }, { "Ref": "NetworkName" } ] },
+          { "Fn::FindInMap":["SubnetMap", {"Fn::FindInMap":["AZHelperMap",{"Ref": "AWS::Region"}, { "Ref": "AvailZoneTwo" } ] }, { "Ref": "NetworkName" } ] }
+        ]
+      }
+    },
+
+    "LaunchConfig": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "AssociatePublicIpAddress" : { "Ref": "PublicIPInstance" },
+        "ImageId": { "Fn::If" : [ "OverRideAMI", {"Ref":"AMI"},  {"Fn::FindInMap" : [ "AMIMap", {"Ref":"AWS::Region"}, "64"]} ]},
+        "SecurityGroups": [  {"Ref": "InstanceSecurityGroup"},  {"Fn::If": ["MakeELB", {"Ref":"ELBSecurityGroup"}, {"Ref":"AWS::NoValue"} ] }  ],
+        "KeyName": { "Ref": "SSHKey" },
+        "IamInstanceProfile": { "Ref":"IamInstanceProfile" },
+        "InstanceType": { "Ref": "InstanceType"},
+        "UserData": {
+          "Fn::Base64": { "Fn::Join": [ "", [
+            "#!/bin/bash -x\n",
+            { "Ref": "PreExtraUserData" }, "\n",
+	    "/usr/bin/mkdir --mode=0700 /launchlogs\n",
+            "/opt/aws/bin/cfn-init -v",
+            " --resource LaunchConfig",
+            " --stack ", { "Ref": "AWS::StackName" },
+            " --region ", { "Ref": "AWS::Region" },
+            " --configsets ", { "Ref": "Env" },
+            " > /launchlogs/cfn-init.log 2>&1\n",
+            "/opt/aws/bin/cfn-signal",
+            " --exit-code $?",
+            " --resource WebServerGroup",
+            " --stack ", { "Ref": "AWS::StackName" },
+            " --region ", { "Ref": "AWS::Region" },
+            " > /launchlogs/cfn-init.log 2>&1\n",
+            "exit 0\n"
+          ] ] }
+        }
+      },
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "configSets": {
+            "default": [ "initialconfig", "setnodename", "downloadpayload", "uploadsmallfiles", "runextracmds" ],
+
+            "initialconfig": {
+              "commands": {
+                "enablepel": {
+                  "command": "yum-config-manager --enable epel"
+                }
+              },
+              "packages" : {
+                "yum" : {
+                  "augeas" : [],
+                  "htop" : []
+                }
+              },
+              "files": {
+                "/etc/facter/facts.d/service.txt" : {
+                  "content" : { "Fn::Join" : ["", [
+                    "env=", {"Ref": "Env"}, "\n",
+                    "service=", {"Ref": "Service"}, "\n"
+                  ]]}
+                },
+                "/sbin/sethostname": {
+                "content": { "Fn::Join" : ["", [
+                  "#!/bin/bash\n",
+                  "instanceid=`curl http://169.254.169.254/latest/meta-data/instance-id`\n",
+                  "localipv4=`curl http://169.254.169.254/latest/meta-data/local-ipv4`\n",
+                  "service='", { "Ref": "Service" }, "'\n",
+                  "environment='", { "Ref": "Env" }, "'\n",
+                  "myhostname=${instanceid}-$environment-$service\n",
+                  "/usr/bin/augtool -s set '/files/etc/sysconfig/network/HOSTNAME' $myhostname\n",
+                  "/bin/hostname $myhostname\n",
+                  "echo $localipv4 $myhostname $instanceid >> /etc/hosts\n\n"
+                ]]},
+                  "mode": "000755"
+                }
+              }
+            },
+
+            "uploadsmallfiles": {
+              "files": {
+                  "/tmp/douploadsmallfiles.sh": {
+                       "content" : { "Fn::Join" : ["", [
+                         "declare -A passed=",{"Ref":"FilesToPush"},"\n",
+                         "for afile in \"${!passed[@]}\"\n",
+                         "do\n",
+                         "dir=`dirname ${passed[\"$afile\"]}`\n",
+                         "if [ ! -d $dir ]\n",
+                         "then\n",
+                         "mkdir -p $dir\n",
+                         "fi\n",
+                         "echo $afile | base64 -d > ${passed[\"$afile\"]}\n",
+                         "ls -al ${passed[\"$afile\"]}\n",
+                         "done\n"
+                    ]]}
+                   }
+              },
+              "commands": {
+                "writefilesout": {
+                  "command": "sh /tmp/douploadsmallfiles.sh > /launchlogs/uploadsmallfiles.out 2>&1"
+                }
+              }
+          },
+          "runextracmds": {
+            "commands": {
+              "runthem": {
+                "command": { "Fn::Join" : ["", [  "echo '", {"Ref":"PostExtraUserData"}, "' | bash -s > /launchlogs/runextracmds.out 2>&1 \n"  ] ] }
+              }
+            }
+          },
+
+          "setnodename" : {
+            "commands": {
+              "sethostname": {
+                "command": "/sbin/sethostname > /launchlogs/sethostname.out 2>&1"
+              }
+            }
+          }
+
+        }
+      }
+    }
+
+
+
+    }
+
+
+  }
+
+
+
+}

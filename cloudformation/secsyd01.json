@@ -1,0 +1,217 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  
+  "Description": "my 'sec' instance",
+
+
+"Parameters" : {
+
+    "Server1Name" : {
+      "Type" : "String",
+      "Description" : "Nodename of instance one"
+    },
+
+    "Server1PuppetCertMyPrivateKey" : {
+      "Type" : "String",
+      "Description" : "Server1: For Puppet Pre-Signed Cert: Private Key for instance (i.e. /var/lib/puppet/ssl/private_keys/secaws.pem)"
+    },
+    "Server1PuppetCertMyCert" : {
+      "Type" : "String",
+      "Description" : "Server1: For Puppet Pre-Signed Cert: Cert for instance (i.e. /var/lib/puppet/ssl/certs/secaws.pem)"
+    }
+
+  },
+
+
+
+
+  "Resources": {
+
+
+
+    "LaunchGroup01": {
+    "Type" : "AWS::AutoScaling::AutoScalingGroup",
+      "Properties" : {
+        "AvailabilityZones" : [ "ap-southeast-2b" ],
+        "Cooldown" : "300",
+        "HealthCheckGracePeriod" : 300,
+        "HealthCheckType" : "EC2",
+        "LaunchConfigurationName" : { "Ref" : "secaws" },
+        "MaxSize" : "1",
+        "MinSize" : "1"
+      }  
+    },
+
+
+      "secaws": {
+        "Type": "AWS::AutoScaling::LaunchConfiguration",
+        "Metadata": {
+        "Comment1": "bootstrap helpers to install + configure puppet",
+        "AWS::CloudFormation::Init": {
+          "configSets": {
+            "bootstrapme": [
+              "puppetgeminstall",
+              "etchosts",
+              "puppetconf",
+              "puppetcertpk",
+              "puppetcertme",
+              "certpk0",
+              "certpk1",
+              "certme0",
+              "certme1",
+              "puppetagentrun"
+            ]
+          },
+          "puppetgeminstall": {
+            "packages": {
+              "rubygems": {
+                "puppet": [
+                  "3.7.1"
+                ]
+              }
+            }
+          },
+          "puppetconf": {
+            "files": {
+              "/etc/puppet/puppet.conf": {
+                "content": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "[main]\n", 
+                      "    server = 'aa'\n",
+                      "    logdir = /var/log/puppet\n",
+                      "    rundir = /var/run/puppet\n",
+                      "    ssldir = $vardir/ssl\n",
+                      "    usecacheonfailure=false\n",
+                      "    runinterval=15m\n",
+                      "    pluginsync = true\n", 
+                      "    certname=", { "Ref" : "Server1Name" }, "\n",
+                      " [agent]\n",
+                      "classfile = $vardir/classes.txt\n",
+                      "localconfig = $vardir/localconfig\n",
+                      "\n"
+                    ]
+                  ]
+                },
+                "mode": "000644",
+                "owner": "root",
+                "group": "root"
+              }
+            }
+          },
+          "puppetcertpk": {
+            "files": {
+              "/tmp/.myprivatekey" : {
+                "content": {
+                  "Fn::Join": [ "", [ { "Ref" : "Server1PuppetCertMyPrivateKey" } ] ]
+                  },
+                "mode": "000600",
+                "owner": "root",
+                "group": "root"
+              }
+            }
+          },
+          "puppetcertme": {
+            "files": {
+              "/tmp/.mycert" : {
+                "content": {
+                  "Fn::Join": [
+                    "", [ { "Ref" : "Server1PuppetCertMyCert" } ] ]
+                  },
+                "mode": "000600",
+                "owner": "root",
+                "group": "root"
+              }
+            }
+          },
+
+
+          "etchosts": {
+            "commands": {
+              "updatehosts": {
+                "command": "echo '60.240.37.106   aa      puppet  # puppet master \n' >> /etc/hosts",
+                "ignoreErrors": "true"
+              }
+            }
+          },
+
+          "certpk0": {
+            "commands": {
+              "updatehosts": {
+                "command":  "mkdir -p /var/lib/puppet/ssl/private_keys",
+                "ignoreErrors": "true"
+              }
+            }
+          },
+          "certpk1": {
+            "commands": {
+              "updatehosts": {
+                "command":  { "Fn::Join": ["", [ "cat /tmp/.myprivatekey | sed 's/<%%%>/\\d010/g' > /var/lib/puppet/ssl/private_keys/", {"Ref" : "Server1Name"}, ".pem" ] ] },
+                "ignoreErrors": "true"
+              }
+            }
+          },
+
+          "certme0": {
+            "commands": {
+              "updatehosts": {
+                "command":  "mkdir -p /var/lib/puppet/ssl/certs",
+                "ignoreErrors": "true"
+              }
+            }
+          },
+          "certme1": {
+            "commands": {
+              "updatehosts": {
+                "command":  { "Fn::Join": ["", [ "cat /tmp/.mycert | sed 's/<%%%>/\\d010/g' > /var/lib/puppet/ssl/certs/", {"Ref" : "Server1Name"}, ".pem" ] ] },
+                "ignoreErrors": "true"
+              }
+            }
+          },
+
+
+
+          "puppetagentrun": {
+            "commands": {
+              "puppetrun": {
+              "command": "/usr/local/bin/puppet agent --waitforcert 30",
+              "ignoreErrors": "true"
+            }
+          }
+        }
+        }
+      },
+          "Properties": {
+            "SpotPrice" : "0.0199",
+            "ImageId": "ami-63f79559",
+            "InstanceType": "m3.medium",
+            "KeyName": "awssydsept",
+            "SecurityGroups": [ "sg-f26bb897" ],
+            "UserData": {
+                "Fn::Base64": {
+                   "Fn::Join": [ "", 
+                  [
+                "#!/bin/bash\n",
+                "yum update -y \n",
+                "/opt/aws/bin/cfn-init -v ",
+                "         --stack ",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "         --resource secaws",
+                "         --configsets bootstrapme",
+                "         --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\n"
+              ]
+            ]
+          }
+             }
+          }
+      }
+  }
+}
+
