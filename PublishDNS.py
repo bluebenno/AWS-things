@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 
-# Secs for _cname_target DNS to become available(in local DNS)
+# For DNS updates DNS to become visible, in local DNS
 MAX_WAIT = 300
 
 # Pretty Colours
@@ -49,7 +49,7 @@ _stack_name = ""
 
 
 class DNSCNameRecord:
-    'A DNS Record'
+    """A representation of a manipulable DNS Record, usually a CNAME"""
     def __init__(self, name):
         self.name = name
         self.zoneid = None
@@ -280,14 +280,14 @@ def update_r53(dns_rec, updated_cname):
 
 
 # TODO: The loop can be too short (TTL things)
-def PollForHostnameResolve(host, max_wait):
+def poll_for_resolve(host, max_loop):
     progress('polling for resolution on:' + host)
     if sys.platform == "darwin":
         command = "/usr/bin/dscacheutil -q host -a name"
     else:
         command = "getent hosts"
 
-    for i in range(1, int(max_wait)):
+    for i in range(0, int(max_loop)):
         ret = run_os_command(command + " " + host + " | grep -i " + host)
         if ret != -1:
             info('confirm: ' + host + ' now resolvable')
@@ -303,7 +303,7 @@ def PollForHostnameResolve(host, max_wait):
 def poll_for_cname_update(host, match, max_wait):
     progress('polling for CNAME resolution :' + host)
 
-    for i in range(1, int(max_wait)):
+    for i in range(0, int(max_wait)):
         ret = run_os_command('dig +short -t CNAME ' + host)
         if ret == -1:
             bail("internal error failure with dig command in"
@@ -376,7 +376,7 @@ def main():
         bail('internal error, the DNS _cname_target is invalid')
 
     # For new stacks; ELB name won't be resolvable yet, so poll...
-    ret = PollForHostnameResolve(_cname_target, MAX_WAIT)
+    ret = poll_for_resolve(_cname_target, MAX_WAIT)
     if ret == -1:
         bail('Timeout on resolution of the ELB DNS name. '
              + str(_cname_target)
